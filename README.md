@@ -2,13 +2,13 @@
 
 Golden Axe game implemented in java using only standard libraries (java 2D, AWT, Swing & Java Sound API), so no external libraries required.
 
-## Win64 Executable / Runnable jar / Source code - v0.0.2 (java 16+)
+## Win64 Executable / Runnable jar / Source code - v0.0.2 (java 25+)
 
 <https://github.com/leonardo-ono/JavaGoldenAxe/releases/tag/v0.0.2>
 
 ## Building locally
 
-1. Install JDK (Adoptium download link)
+1. Install JDK 25 (Adoptium/Microsoft OpenJDK download link)
 1. Set JAVA_HOME = path/to/jdk
 1. Set PATH = PATH + JAVA_HOME/bin
 1. Install Ant (Apache Ant Download link)
