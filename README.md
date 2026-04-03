@@ -23,6 +23,28 @@ Golden Axe game implemented in java using only standard libraries (java 2D, AWT,
 java -jar /path/to/this/repo/JavaGoldenAxe/dist/JavaGoldenAxe.jar
 ```
 
+### Windows launcher (controller-enabled runtime)
+
+Controller support requires the JInput jars on the runtime classpath.  
+On Windows, run:
+
+```bat
+JavaGoldenAxe\run-game-windows.bat
+```
+
+The script expects:
+- `JavaGoldenAxe\dist\JavaGoldenAxe.jar`
+- `JavaGoldenAxe\libs\jinput-2.0.10.jar`
+- `JavaGoldenAxe\libs\jutils-1.0.0.jar`
+- `JavaGoldenAxe\libs\natives\jinput-dx8_64.dll`
+- `JavaGoldenAxe\libs\natives\jinput-raw_64.dll`
+
+To provide natives, extract:
+
+`https://repo1.maven.org/maven2/net/java/jinput/jinput/2.0.10/jinput-2.0.10-natives-all.jar`
+
+into `JavaGoldenAxe\libs\natives\`.
+
 ## Keyboard Controls
 
 [F12] key: full screen mode

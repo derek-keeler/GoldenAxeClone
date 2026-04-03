@@ -102,6 +102,7 @@ public class GoldenAxeGame {
     }
     
     public void fixedUpdate() {
+        Input.pollControllers();
         Audio.update();
         sceneManager.fixedUpdate();
     }

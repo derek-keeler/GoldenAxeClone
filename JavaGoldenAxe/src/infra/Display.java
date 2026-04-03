@@ -49,6 +49,12 @@ public class Display extends JFrame {
         gameCanvas.start();
         gameCanvas.requestFocus();
         Input.addListener(new KeyHandler());
+        addWindowFocusListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowLostFocus(java.awt.event.WindowEvent e) {
+                Input.clearVirtualInputs();
+            }
+        });
     }
     
     public void setWindowedMode() {

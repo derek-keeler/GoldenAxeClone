@@ -18,11 +18,14 @@ public class Input implements KeyListener {
     
     private static final Set<Integer> KEYS_PRESSED = new HashSet<>();
     private static final Set<Integer> KEYS_PRESSED_CONSUMED = new HashSet<>();
+    private static final Set<Integer> VIRTUAL_KEYS_PRESSED = new HashSet<>();
     private static final List<KeyListener> LISTENERS = new ArrayList<>();
     
     private static final long DOUBLE_PRESSED_TIME = 250;
     private static final Map<Integer, long[]> KEYS_DOUBLE_PRESSED 
                                                             = new HashMap<>();
+    private static final ControllerSupport CONTROLLER_SUPPORT
+            = new ControllerSupport();
 
     public static void addListener(KeyListener listener) {
         Input.LISTENERS.add(listener);
@@ -61,6 +64,63 @@ public class Input implements KeyListener {
         }
         return false;
     }
+
+    public static synchronized void pollControllers() {
+        CONTROLLER_SUPPORT.update();
+    }
+
+    public static synchronized void setVirtualKeyState(int keyCode
+            , boolean pressed) {
+
+        if (pressed) {
+            if (!VIRTUAL_KEYS_PRESSED.contains(keyCode)) {
+                VIRTUAL_KEYS_PRESSED.add(keyCode);
+                pressKeyInternal(keyCode);
+            }
+        }
+        else if (VIRTUAL_KEYS_PRESSED.contains(keyCode)) {
+            VIRTUAL_KEYS_PRESSED.remove(keyCode);
+            releaseKeyInternal(keyCode);
+        }
+    }
+
+    public static synchronized void clearVirtualInputs() {
+        // copy keys to avoid concurrent modification while releasing
+        List<Integer> activeKeys = new ArrayList<>(VIRTUAL_KEYS_PRESSED);
+        activeKeys.forEach(keyCode -> setVirtualKeyState(keyCode, false));
+    }
+
+    private static void pressKeyInternal(int keyCode) {
+        if (!KEYS_PRESSED.contains(keyCode)) {
+            long[] lastTimes = KEYS_DOUBLE_PRESSED.get(keyCode);
+            if (lastTimes == null) {
+                lastTimes = new long[2];
+                KEYS_DOUBLE_PRESSED.put(keyCode, lastTimes);
+            }
+            if (lastTimes[0] < 0
+                    || Util.getTime() - lastTimes[0] > DOUBLE_PRESSED_TIME) {
+
+                lastTimes[0] = Util.getTime();
+                lastTimes[1] = -1;
+            }
+        }
+        KEYS_PRESSED.add(keyCode);
+    }
+
+    private static void releaseKeyInternal(int keyCode) {
+        KEYS_PRESSED.remove(keyCode);
+        long[] lastTimes = KEYS_DOUBLE_PRESSED.get(keyCode);
+        if (lastTimes != null) {
+            if (Util.getTime() - lastTimes[0] <= DOUBLE_PRESSED_TIME) {
+                lastTimes[1] = Util.getTime();
+            }
+            else {
+                lastTimes[0] = -1;
+                lastTimes[1] = -1;
+            }
+        }
+        KEYS_PRESSED_CONSUMED.remove(keyCode);
+    }
     
     @Override
     public synchronized void keyTyped(KeyEvent e) {
@@ -71,22 +131,7 @@ public class Input implements KeyListener {
 
     @Override
     public synchronized void keyPressed(KeyEvent e) {
-        if (!KEYS_PRESSED.contains(e.getKeyCode())) {
-            long[] lastTimes = KEYS_DOUBLE_PRESSED.get(e.getKeyCode());
-            if (lastTimes == null) {
-                lastTimes = new long[2];
-                KEYS_DOUBLE_PRESSED.put(e.getKeyCode(), lastTimes);
-            }
-            if (lastTimes[0] < 0 
-                    || Util.getTime() - lastTimes[0] > DOUBLE_PRESSED_TIME) {
-                
-                lastTimes[0] = Util.getTime();
-                lastTimes[1] = -1;
-            }
-            //System.out.println("keyPressed double key " + e.getKeyCode());
-        }
-
-        KEYS_PRESSED.add(e.getKeyCode());
+        pressKeyInternal(e.getKeyCode());
         if (LISTENERS != null) {
             LISTENERS.forEach(action -> action.keyPressed(e));
         }
@@ -94,21 +139,7 @@ public class Input implements KeyListener {
     
     @Override
     public synchronized void keyReleased(KeyEvent e) {
-        KEYS_PRESSED.remove(e.getKeyCode());
-        
-        long[] lastTimes = KEYS_DOUBLE_PRESSED.get(e.getKeyCode());
-        if (lastTimes != null) {
-            if (Util.getTime() - lastTimes[0] <= DOUBLE_PRESSED_TIME) {
-                lastTimes[1] = Util.getTime();
-            }
-            else {
-                lastTimes[0] = -1;
-                lastTimes[1] = -1;
-            }
-            // System.out.println("keyReleased double key " + e.getKeyCode());
-        }
-        
-        KEYS_PRESSED_CONSUMED.remove(e.getKeyCode());
+        releaseKeyInternal(e.getKeyCode());
         if (LISTENERS != null) {
             LISTENERS.forEach(action -> action.keyReleased(e));
         }
