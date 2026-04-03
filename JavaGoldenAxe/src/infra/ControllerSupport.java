@@ -2,6 +2,8 @@ package infra;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 import net.java.games.input.Component;
 import net.java.games.input.Controller;
 import net.java.games.input.ControllerEnvironment;
@@ -14,8 +16,10 @@ import net.java.games.input.ControllerEnvironment;
  */
 public class ControllerSupport {
 
-    private static final float DEADZONE_ENTER = 0.35f;
-    private static final float DEADZONE_EXIT = 0.25f;
+    private static final float DEADZONE_ENTER = 0.45f;
+    private static final float DEADZONE_EXIT = 0.35f;
+    private static final long DIRECTION_RELEASE_DELAY_MS = 90L;
+    private static final long DIRECTION_REPRESS_DELAY_MS = 140L;
 
     private static final long RESCAN_INTERVAL_MS = 1500L;
     private long nextRescanTime;
@@ -26,6 +30,9 @@ public class ControllerSupport {
 
     private final Map<Integer, AxisState> axisStates = new HashMap<>();
     private final Map<Integer, AxisState> triggerStates = new HashMap<>();
+    private final Set<Integer> activeDirectionalKeys = new HashSet<>();
+    private final Map<Integer, Long> lastDirectionalPressTime = new HashMap<>();
+    private final Map<Integer, Long> directionalNeutralSinceTime = new HashMap<>();
 
     private static class AxisState {
         boolean negativeActive;
@@ -55,8 +62,6 @@ public class ControllerSupport {
             assignControllers();
             nextRescanTime = now + RESCAN_INTERVAL_MS;
         }
-
-        Input.clearVirtualInputs();
 
         if (player1Controller != null) {
             pollPlayerController(player1Controller, 1);
@@ -115,6 +120,15 @@ public class ControllerSupport {
                 ? Settings.KEY_PLAYER_1_MAGIC : Settings.KEY_PLAYER_2_MAGIC;
         int keyStart = playerIndex == 1
                 ? Settings.KEY_START_1 : Settings.KEY_START_2;
+        
+        boolean up = false;
+        boolean down = false;
+        boolean left = false;
+        boolean right = false;
+        boolean attack = false;
+        boolean jump = false;
+        boolean magic = false;
+        boolean start = false;
 
         for (Component component : controller.getComponents()) {
             Component.Identifier id = component.getIdentifier();
@@ -122,34 +136,46 @@ public class ControllerSupport {
 
             // D-Pad
             if (id == Component.Identifier.Axis.POV) {
-                boolean up = value == Component.POV.UP
+                boolean povUp = value == Component.POV.UP
                         || value == Component.POV.UP_LEFT
                         || value == Component.POV.UP_RIGHT;
-                boolean down = value == Component.POV.DOWN
+                boolean povDown = value == Component.POV.DOWN
                         || value == Component.POV.DOWN_LEFT
                         || value == Component.POV.DOWN_RIGHT;
-                boolean left = value == Component.POV.LEFT
+                boolean povLeft = value == Component.POV.LEFT
                         || value == Component.POV.UP_LEFT
                         || value == Component.POV.DOWN_LEFT;
-                boolean right = value == Component.POV.RIGHT
+                boolean povRight = value == Component.POV.RIGHT
                         || value == Component.POV.UP_RIGHT
                         || value == Component.POV.DOWN_RIGHT;
-                Input.setVirtualKeyState(keyUp, up);
-                Input.setVirtualKeyState(keyDown, down);
-                Input.setVirtualKeyState(keyLeft, left);
-                Input.setVirtualKeyState(keyRight, right);
+                if (povUp) {
+                    up = true;
+                }
+                if (povDown) {
+                    down = true;
+                }
+                if (povLeft) {
+                    left = true;
+                }
+                if (povRight) {
+                    right = true;
+                }
                 continue;
             }
 
             // Left stick mapped to movement
             if (id == Component.Identifier.Axis.X) {
-                updateAxisDirection(playerIndex * 10 + 1, value, keyLeft,
-                        keyRight);
+                AxisState state = updateAxisState(axisStates
+                        , playerIndex * 10 + 1, value);
+                left = left || state.negativeActive;
+                right = right || state.positiveActive;
                 continue;
             }
             if (id == Component.Identifier.Axis.Y) {
-                updateAxisDirection(playerIndex * 10 + 2, value, keyUp,
-                        keyDown);
+                AxisState state = updateAxisState(axisStates
+                        , playerIndex * 10 + 2, value);
+                up = up || state.negativeActive;
+                down = down || state.positiveActive;
                 continue;
             }
 
@@ -157,31 +183,42 @@ public class ControllerSupport {
             if (id == Component.Identifier.Axis.Z
                     || id == Component.Identifier.Axis.RZ) {
 
-                updateTriggerDirection(playerIndex * 20 + id.getName().hashCode()
-                        , value, keyMagic, keyJump);
+                AxisState state = updateAxisState(triggerStates
+                        , playerIndex * 20 + id.getName().hashCode(), value);
+                magic = magic || state.negativeActive;
+                jump = jump || state.positiveActive;
                 continue;
             }
 
             // Face/Start buttons
             if (id == Component.Identifier.Button._0) { // A
-                Input.setVirtualKeyState(keyJump, value > 0.5f);
+                jump = jump || value > 0.5f;
             }
             else if (id == Component.Identifier.Button._1) { // B
-                Input.setVirtualKeyState(keyAttack, value > 0.5f);
+                attack = attack || value > 0.5f;
             }
             else if (id == Component.Identifier.Button._2) { // X
-                Input.setVirtualKeyState(keyMagic, value > 0.5f);
+                magic = magic || value > 0.5f;
             }
             else if (id == Component.Identifier.Button._7) { // Start
-                Input.setVirtualKeyState(keyStart, value > 0.5f);
+                start = start || value > 0.5f;
             }
         }
+        
+        applyDirectionalKey(keyUp, up);
+        applyDirectionalKey(keyDown, down);
+        applyDirectionalKey(keyLeft, left);
+        applyDirectionalKey(keyRight, right);
+        
+        Input.setVirtualKeyState(keyAttack, attack);
+        Input.setVirtualKeyState(keyJump, jump);
+        Input.setVirtualKeyState(keyMagic, magic);
+        Input.setVirtualKeyState(keyStart, start);
     }
 
-    private void updateAxisDirection(int id, float value, int negativeKey
-            , int positiveKey) {
-
-        AxisState state = axisStates.computeIfAbsent(id, k -> new AxisState());
+    private AxisState updateAxisState(Map<Integer, AxisState> axisMap
+            , int id, float value) {
+        AxisState state = axisMap.computeIfAbsent(id, k -> new AxisState());
         boolean shouldNegative = state.negativeActive
                 ? value < -DEADZONE_EXIT : value < -DEADZONE_ENTER;
         boolean shouldPositive = state.positiveActive
@@ -189,26 +226,42 @@ public class ControllerSupport {
 
         state.negativeActive = shouldNegative && !shouldPositive;
         state.positiveActive = shouldPositive && !shouldNegative;
-
-        Input.setVirtualKeyState(negativeKey, state.negativeActive);
-        Input.setVirtualKeyState(positiveKey, state.positiveActive);
+        return state;
     }
 
-    private void updateTriggerDirection(int id, float value, int leftKey
-            , int rightKey) {
+    private void applyDirectionalKey(int keyCode, boolean desired) {
+        long now = System.currentTimeMillis();
+        if (desired) {
+            directionalNeutralSinceTime.remove(keyCode);
+            if (!activeDirectionalKeys.contains(keyCode)) {
+                long lastPress = lastDirectionalPressTime
+                        .getOrDefault(keyCode, 0L);
+                if (now - lastPress >= DIRECTION_REPRESS_DELAY_MS) {
+                    activeDirectionalKeys.add(keyCode);
+                    lastDirectionalPressTime.put(keyCode, now);
+                    Input.setVirtualKeyState(keyCode, true);
+                }
+            }
+            else {
+                Input.setVirtualKeyState(keyCode, true);
+            }
+            return;
+        }
 
-        AxisState state = triggerStates.computeIfAbsent(id
-                , k -> new AxisState());
-        boolean shouldLeft = state.negativeActive
-                ? value < -DEADZONE_EXIT : value < -DEADZONE_ENTER;
-        boolean shouldRight = state.positiveActive
-                ? value > DEADZONE_EXIT : value > DEADZONE_ENTER;
-
-        state.negativeActive = shouldLeft && !shouldRight;
-        state.positiveActive = shouldRight && !shouldLeft;
-
-        Input.setVirtualKeyState(leftKey, state.negativeActive);
-        Input.setVirtualKeyState(rightKey, state.positiveActive);
+        if (!activeDirectionalKeys.contains(keyCode)) {
+            return;
+        }
+        
+        long neutralSince = directionalNeutralSinceTime.computeIfAbsent(keyCode
+                , k -> now);
+        if (now - neutralSince >= DIRECTION_RELEASE_DELAY_MS) {
+            activeDirectionalKeys.remove(keyCode);
+            directionalNeutralSinceTime.remove(keyCode);
+            Input.setVirtualKeyState(keyCode, false);
+        }
+        else {
+            Input.setVirtualKeyState(keyCode, true);
+        }
     }
 
 }

@@ -41,4 +41,10 @@ if not exist "%NATIVES_DIR%\jinput-raw_64.dll" (
   exit /b 1
 )
 
-java -Dnet.java.games.input.librarypath="%NATIVES_DIR%" -cp "%JINPUT_JAR%;%JUTILS_JAR%;%GAME_JAR%" main.Main
+if not defined JAVA_HOME (
+  set "JAVA_EXE=java"
+) else (
+  set "JAVA_EXE=%JAVA_HOME%\bin\java.exe"
+)
+
+"%JAVA_EXE%" --enable-native-access=ALL-UNNAMED -Dnet.java.games.input.librarypath="%NATIVES_DIR%" -cp "%JINPUT_JAR%;%JUTILS_JAR%;%GAME_JAR%" main.Main
